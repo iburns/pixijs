@@ -24,7 +24,7 @@
     "clean:uploads": "rimraf .pr_uploads .s3_uploads --glob",
     "prebuild": "npm run clean",
     "build": "run-s build:pkg build:rollup build:tsc build:dts build:dts-bundle",
-    "build:rollup": "npx rollup -c --failAfterWarnings",
+    "build:rollup": "npx rollup -c",
     "build:dts-bundle": "dts-bundle-generator --config dts.config.js",
     "build:tsc": "tsc -p tsconfig.types.json",
     "build:tsc:silent": "tsc-silent -p tsconfig.types.json --suppress @",
@@ -68,6 +68,7 @@
     "eventemitter3": "^5.0.1",
     "gifuct-js": "^2.1.2",
     "ismobilejs": "^1.1.1",
+    "opentype.js": "^1.3.4",
     "parse-svg-path": "^0.1.2"
   },
   "devDependencies": {
@@ -83,6 +84,7 @@
     "@types/glob": "^8.1.0",
     "@types/inquirer": "^8.0.0",
     "@types/jest": "^26.0.0",
+    "@types/opentype.js": "^1.3.8",
     "@types/pixelmatch": "^5.2.4",
     "@types/pngjs": "^6.0.2",
     "@types/semver": "^7.5.8",

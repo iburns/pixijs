@@ -4,6 +4,7 @@ import { CanvasPool } from '../../rendering/renderers/shared/texture/CanvasPool'
 import { ImageSource } from '../../rendering/renderers/shared/texture/sources/ImageSource';
 import { Texture } from '../../rendering/renderers/shared/texture/Texture';
 import { deprecation, v8_0_0 } from '../../utils/logging/deprecation';
+import { Cache } from '../../assets/cache/Cache';
 import { CanvasTextMetrics } from '../text/canvas/CanvasTextMetrics';
 import { fontStringFromTextStyle } from '../text/canvas/utils/fontStringFromTextStyle';
 import { getCanvasFillStyle } from '../text/canvas/utils/getCanvasFillStyle';
@@ -157,13 +158,18 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
         {
             const char = charList[i];
 
+            // Use OpenType-enabled measurement for individual character width
+            const charWidth = CanvasTextMetrics.measureTextWidth(char, 0, context);
+            
+            // Also get metrics for height and other properties
             const metrics = CanvasTextMetrics.measureText(char, style, canvas, false);
 
             // override the line height.. we want this to be the glyps height
             // not the user specified one.
             metrics.lineHeight = metrics.height;
 
-            const width = metrics.width * fontScale;
+            // Use the OpenType width for more precise measurements
+            const width = charWidth * fontScale;
             // This is ugly - but italics are given more space so they don't overlap
             const textureGlyphWidth = Math.ceil((style.fontStyle === 'italic' ? 2 : 1) * width);
 
@@ -202,7 +208,8 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
                 }
             }
 
-            const xAdvance = (width / fontScale)
+            // Use the unscaled charWidth for xAdvance to avoid precision loss
+            const xAdvance = charWidth
                 - (style.dropShadow?.distance ?? 0)
                 - (style._stroke?.width ?? 0);
 
@@ -273,6 +280,7 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
     {
         const measureCache = this._measureCache;
 
+        // Use OpenType-enabled measurement for more accurate kerning calculations
         for (let i = 0; i < newChars.length; i++)
         {
             const first = newChars[i];
@@ -284,13 +292,13 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
 
                 let c1 = measureCache[first];
 
-                if (!c1) c1 = measureCache[first] = context.measureText(first).width;
+                if (!c1) c1 = measureCache[first] = CanvasTextMetrics.measureTextWidth(first, 0, context);
 
                 let c2 = measureCache[second];
 
-                if (!c2) c2 = measureCache[second] = context.measureText(second).width;
+                if (!c2) c2 = measureCache[second] = CanvasTextMetrics.measureTextWidth(second, 0, context);
 
-                let total = context.measureText(first + second).width;
+                let total = CanvasTextMetrics.measureTextWidth(first + second, 0, context);
                 let amount = total - (c1 + c2);
 
                 if (amount)
@@ -299,7 +307,7 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
                 }
 
                 // then go through new char being second
-                total = context.measureText(first + second).width;
+                total = CanvasTextMetrics.measureTextWidth(first + second, 0, context);
                 amount = total - (c1 + c2);
 
                 if (amount)
@@ -347,11 +355,16 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
     // canvas style!
     private _setupContext(context: ICanvasRenderingContext2D, style: TextStyle, resolution: number): void
     {
-        style.fontSize = this.baseRenderedFontSize;
+        // Set the font to the base measurement size for consistent OpenType lookup
+        const tempFontSize = style.fontSize;
+        style.fontSize = this.baseMeasurementFontSize;
+        
         context.scale(resolution, resolution);
         context.font = fontStringFromTextStyle(style);
-        style.fontSize = this.baseMeasurementFontSize;
         context.textBaseline = style.textBaseline;
+
+        // Restore the original font size
+        style.fontSize = tempFontSize;
 
         const stroke = style._stroke;
         const strokeThickness = stroke?.width ?? 0;
@@ -415,15 +428,289 @@ export class DynamicBitmapFont extends AbstractBitmapFont<DynamicBitmapFont>
         const descent = fontProperties.descent * fontScale;
         const lineHeight = metrics.lineHeight * fontScale;
 
-        if (style.stroke && strokeThickness)
+        // Calculate the baseline position for drawing
+        const baselineY = ty + lineHeight - descent;
+        
+        // Try to use OpenType font for more accurate glyph rendering
+        const openTypeFont = this._getOpenTypeFont();
+        
+        if (openTypeFont)
         {
-            context.strokeText(char, tx, ty + lineHeight - descent);
+            // Use OpenType.js for precise glyph rendering
+            this._drawGlyphWithOpenType(
+                context,
+                char,
+                tx,
+                baselineY,
+                fontScale,
+                style,
+                openTypeFont,
+                strokeThickness
+            );
+        }
+        else
+        {
+            // Fallback to canvas text rendering
+            this._drawGlyphWithCanvas(
+                context,
+                char,
+                tx,
+                baselineY,
+                style,
+                strokeThickness
+            );
+        }
+    }
+
+    /**
+     * Gets the OpenType font for this dynamic bitmap font
+     * @returns OpenType font object or null if not available
+     */
+    private _getOpenTypeFont(): any | null
+    {
+        try
+        {
+            // Extract font family from the style
+            const fontFamily = this._style.fontFamily;
+            
+            // Handle font family arrays (take the first one)
+            const family = Array.isArray(fontFamily) ? fontFamily[0] : fontFamily;
+            
+            // Remove quotes and get clean family name
+            const cleanFamily = family.replace(/['"]/g, '');
+            
+            const cacheKey = `${cleanFamily}-opentype`;
+            const openTypeFontData = Cache.get(cacheKey);
+            
+            if (openTypeFontData?.font)
+            {
+                return openTypeFontData.font;
+            }
+            
+            return null;
+        }
+        catch (error)
+        {
+            console.warn('Failed to get OpenType font:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Draws a glyph using OpenType.js methods
+     */
+    private _drawGlyphWithOpenType(
+        context: ICanvasRenderingContext2D,
+        char: string,
+        x: number,
+        y: number,
+        fontScale: number,
+        style: TextStyle,
+        openTypeFont: any,
+        strokeThickness: number
+    ): void
+    {
+        // Calculate the actual font size for OpenType rendering
+        // We need to use the base measurement font size
+        const fontSize = this.baseMeasurementFontSize;
+        
+        // Save the current context state
+        context.save();
+        
+        // Scale the context to match our font scale
+        context.scale(fontScale, fontScale);
+        
+        // Adjust coordinates for the scaled context
+        const scaledX = x / fontScale;
+        const scaledY = y / fontScale;
+        
+        try
+        {
+            // Draw stroke if needed
+            if (style._stroke && strokeThickness > 0)
+            {
+                // For stroke, we need to get the path and stroke it manually
+                const path = openTypeFont.getPath(char, scaledX, scaledY, fontSize, {
+                    kerning: true,
+                    hinting: false
+                });
+                
+                // Set up stroke properties
+                context.lineWidth = strokeThickness / fontScale;
+                context.lineJoin = style._stroke.join || 'round';
+                context.miterLimit = style._stroke.miterLimit || 10;
+                context.strokeStyle = context.strokeStyle; // Use existing stroke style
+                
+                // Convert OpenType path to canvas path and stroke
+                this._drawOpenTypePath(context, path, true, false);
+            }
+            
+            // Draw fill if needed
+            if (style._fill)
+            {
+                const path = openTypeFont.getPath(char, scaledX, scaledY, fontSize, {
+                    kerning: true,
+                    hinting: false
+                });
+                
+                // Convert OpenType path to canvas path and fill
+                this._drawOpenTypePath(context, path, false, true);
+            }
+        }
+        catch (error)
+        {
+            console.warn('OpenType glyph rendering failed, falling back to canvas:', error);
+            
+            // Restore context and fallback to canvas rendering
+            context.restore();
+            this._drawGlyphWithCanvas(context, char, x, y, style, strokeThickness);
+            return;
+        }
+        
+        // Restore the context state
+        context.restore();
+    }
+
+    /**
+     * Converts an OpenType path to canvas path commands and draws it
+     */
+    private _drawOpenTypePath(
+        context: ICanvasRenderingContext2D,
+        openTypePath: any,
+        shouldStroke: boolean,
+        shouldFill: boolean
+    ): void
+    {
+        if (!openTypePath.commands || openTypePath.commands.length === 0)
+        {
+            return;
+        }
+        
+        context.beginPath();
+        
+        for (const command of openTypePath.commands)
+        {
+            switch (command.type)
+            {
+                case 'M': // Move to
+                    context.moveTo(command.x, command.y);
+                    break;
+                case 'L': // Line to
+                    context.lineTo(command.x, command.y);
+                    break;
+                case 'C': // Cubic Bezier curve
+                    context.bezierCurveTo(
+                        command.x1, command.y1,
+                        command.x2, command.y2,
+                        command.x, command.y
+                    );
+                    break;
+                case 'Q': // Quadratic Bezier curve
+                    context.quadraticCurveTo(
+                        command.x1, command.y1,
+                        command.x, command.y
+                    );
+                    break;
+                case 'Z': // Close path
+                    context.closePath();
+                    break;
+            }
+        }
+        
+        if (shouldStroke)
+        {
+            context.stroke();
+        }
+        
+        if (shouldFill)
+        {
+            context.fill();
+        }
+    }
+
+    /**
+     * Fallback method to draw glyph using canvas text methods
+     */
+    private _drawGlyphWithCanvas(
+        context: ICanvasRenderingContext2D,
+        char: string,
+        x: number,
+        y: number,
+        style: TextStyle,
+        strokeThickness: number
+    ): void
+    {
+        if (style._stroke && strokeThickness > 0)
+        {
+            context.strokeText(char, x, y);
         }
 
         if (style._fill)
         {
-            context.fillText(char, tx, ty + lineHeight - descent);
+            context.fillText(char, x, y);
         }
+    }
+
+    /**
+     * Debug method to test OpenType glyph rendering for specific characters
+     * @param chars - Characters to test
+     */
+    public debugOpenTypeGlyphRendering(chars: string): void
+    {
+        console.log('=== OpenType Glyph Rendering Debug ===');
+        
+        const openTypeFont = this._getOpenTypeFont();
+        
+        if (!openTypeFont)
+        {
+            console.log('No OpenType font available for debugging');
+            return;
+        }
+        
+        console.log('OpenType font found:', {
+            familyName: openTypeFont.familyName,
+            unitsPerEm: openTypeFont.unitsPerEm,
+            ascender: openTypeFont.ascender,
+            descender: openTypeFont.descender
+        });
+        
+        // Test if we can get paths for each character
+        for (const char of chars)
+        {
+            console.log(`\n--- Testing character: "${char}" ---`);
+            
+            try
+            {
+                const glyph = openTypeFont.charToGlyph(char);
+                if (glyph)
+                {
+                    console.log('Glyph found:', {
+                        name: glyph.name,
+                        unicode: glyph.unicode,
+                        advanceWidth: glyph.advanceWidth,
+                        leftSideBearing: glyph.leftSideBearing
+                    });
+                    
+                    // Test getting a path
+                    const path = openTypeFont.getPath(char, 0, 0, this.baseMeasurementFontSize);
+                    console.log('Path generated:', {
+                        commandCount: path.commands?.length || 0,
+                        fill: path.fill,
+                        stroke: path.stroke
+                    });
+                }
+                else
+                {
+                    console.warn(`No glyph found for character: "${char}"`);
+                }
+            }
+            catch (error)
+            {
+                console.error(`Error testing character "${char}":`, error);
+            }
+        }
+        
+        console.log('=== End OpenType Glyph Debug ===');
     }
 
     public override destroy(): void

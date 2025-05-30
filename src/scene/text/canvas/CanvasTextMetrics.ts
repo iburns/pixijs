@@ -1,4 +1,5 @@
 import { DOMAdapter } from '../../../environment/adapter';
+import { Cache } from '../../../assets/cache/Cache';
 import { fontStringFromTextStyle } from './utils/fontStringFromTextStyle';
 
 import type { ICanvas, ICanvasRenderingContext2DSettings } from '../../../environment/canvas/ICanvas';
@@ -314,6 +315,14 @@ export class CanvasTextMetrics
         context: ICanvasRenderingContext2D
     )
     {
+        // Try to use OpenType measurement if available
+        const openTypeWidth = CanvasTextMetrics._measureTextWithOpenType(text, letterSpacing, context);
+        if (openTypeWidth !== null)
+        {
+            return openTypeWidth;
+        }
+
+        // Fallback to existing canvas measurement
         let useExperimentalLetterSpacing = false;
 
         if (CanvasTextMetrics.experimentalLetterSpacingSupported)
@@ -356,6 +365,114 @@ export class CanvasTextMetrics
         // NOTE: this is a bit of a hack as metrics.width and the bounding box width do not measure the same thing
         // We can't seem to exclusively use one or the other, so are taking the largest of the two
         return Math.max(metricWidth, boundsWidth);
+    }
+
+    /**
+     * Attempts to measure text using OpenType.js for more accurate measurements
+     * @param text - The text to measure
+     * @param letterSpacing - The letter spacing to apply
+     * @param context - The canvas context (used to get font info)
+     * @returns The measured width or null if OpenType measurement isn't available
+     */
+    private static _measureTextWithOpenType(
+        text: string,
+        letterSpacing: number,
+        context: ICanvasRenderingContext2D
+    ): number | null
+    {
+        try
+        {
+            // Parse font from context
+            const fontInfo = CanvasTextMetrics._parseFontFromContext(context);
+            if (!fontInfo) return null;
+
+            // Check if we have an OpenType font for this family
+            const cacheKey = `${fontInfo.family}-opentype`;
+            const openTypeFontData = Cache.get(cacheKey);
+            
+            if (!openTypeFontData?.font) 
+            {
+                console.log(`OpenType font not found in cache for: ${fontInfo.family} (key: ${cacheKey})`);
+                return null;
+            }
+
+            const { font } = openTypeFontData;
+            const fontSize = fontInfo.size;
+
+            console.log('Using OpenType measurement:', { 
+                text, 
+                fontSize, 
+                letterSpacing, 
+                fontFamily: fontInfo.family 
+            });
+
+            // Use OpenType's built-in getAdvanceWidth method for accurate measurement
+            // Note: OpenType.js getAdvanceWidth expects (text, fontSize, options)
+            let totalWidth = font.getAdvanceWidth(text, fontSize);
+
+            console.log(`OpenType advance width for "${text}": ${totalWidth}`);
+
+            // Add letter spacing manually since OpenType doesn't account for it
+            if (letterSpacing > 0)
+            {
+                const characterCount = CanvasTextMetrics.graphemeSegmenter(text).length;
+                if (characterCount > 1)
+                {
+                    const letterSpacingAddition = letterSpacing * (characterCount - 1);
+                    totalWidth += letterSpacingAddition;
+                    console.log(`Added letter spacing: ${letterSpacingAddition} (${letterSpacing} * ${characterCount - 1})`);
+                }
+            }
+
+            console.log(`Final OpenType width for "${text}": ${totalWidth}`);
+            return totalWidth;
+        }
+        catch (error)
+        {
+            // If anything goes wrong, fall back to canvas measurement
+            console.warn('OpenType measurement failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Parses font information from a canvas context's font property
+     * @param context - The canvas context
+     * @returns Font information or null if parsing fails
+     */
+    private static _parseFontFromContext(context: ICanvasRenderingContext2D): { family: string; size: number } | null
+    {
+        try
+        {
+            const font = context.font;
+            
+            // Enhanced regex to handle various font string formats
+            // Handles: "italic bold 16px Arial, sans-serif", "16px Arial", "bold 16px 'Times New Roman'"
+            const fontRegex = /(?:.*\s)?(\d+(?:\.\d+)?)px\s+(.+)$/;
+            const match = font.match(fontRegex);
+            
+            if (!match) 
+            {
+                console.warn('Unable to parse font string:', font);
+                return null;
+            }
+            
+            const size = parseFloat(match[1]);
+            let family = match[2].trim();
+            
+            // Extract first font family and remove quotes and fallbacks
+            const families = family.split(',');
+            family = families[0].trim().replace(/['"]/g, '');
+            
+            console.log('Parsed font context:', { font, size, family });
+            
+            return { family, size };
+        }
+        catch (error)
+        {
+            console.warn('Error parsing font from context:', error);
+            return null;
+        }
     }
 
     /**
@@ -778,13 +895,24 @@ export class CanvasTextMetrics
      */
     public static measureFont(font: string): FontMetrics
     {
+        console.log('CanvasTextMetrics.measureFont', font);
         // as this method is used for preparing assets, don't recalculate things if we don't need to
         if (CanvasTextMetrics._fonts[font])
         {
             return CanvasTextMetrics._fonts[font];
         }
-
+        // Fallback to canvas measurement
         const context = CanvasTextMetrics._context;
+
+        // Try to use OpenType font metrics if available
+        const openTypeMetrics = CanvasTextMetrics._measureFontWithOpenType(font);
+        if (openTypeMetrics)
+        {
+            CanvasTextMetrics._fonts[font] = openTypeMetrics;
+            console.log('CanvasTextMetrics.measureFont', openTypeMetrics);
+            return openTypeMetrics;
+        }
+        
 
         context.font = font;
         const metrics = context.measureText(CanvasTextMetrics.METRICS_STRING + CanvasTextMetrics.BASELINE_SYMBOL);
@@ -865,5 +993,129 @@ export class CanvasTextMetrics
         }
 
         return CanvasTextMetrics.__context;
+    }
+
+    /**
+     * Measures the width of a single string of text using OpenType when available, otherwise canvas measurement
+     * @param text - The text to measure
+     * @param letterSpacing - The letter spacing to apply
+     * @param context - The canvas context to use for measurement
+     * @returns The measured width in pixels
+     */
+    public static measureTextWidth(
+        text: string,
+        letterSpacing: number,
+        context: ICanvasRenderingContext2D
+    ): number
+    {
+        return CanvasTextMetrics._measureText(text, letterSpacing, context);
+    }
+
+    /**
+     * Attempts to measure font metrics using OpenType.js for more accurate measurements
+     * @param font - The font string (e.g., "16px Arial")
+     * @returns Font metrics or null if OpenType measurement isn't available
+     */
+    private static _measureFontWithOpenType(font: string): FontMetrics | null
+    {
+        try
+        {
+            // Parse font string to get family and size
+            const fontRegex = /(\d+(?:\.\d+)?)px\s+(.+)$/;
+            const match = font.match(fontRegex);
+            
+            if (!match) return null;
+            
+            const fontSize = parseFloat(match[1]);
+            let family = match[2].trim();
+            
+            // Extract first font family and remove quotes
+            const families = family.split(',');
+            family = families[0].trim().replace(/['"]/g, '');
+
+            // Check if we have an OpenType font for this family
+            const openTypeFontData = Cache.get(`${family}-opentype`);
+            if (!openTypeFontData?.font) return null;
+
+            const { font: openTypeFont } = openTypeFontData;
+
+            // Get font metrics from OpenType font
+            // These values are in font units, need to scale by fontSize / unitsPerEm
+            const scale = fontSize / openTypeFont.unitsPerEm;
+            
+            const ascent = (openTypeFont.ascender || 0) * scale;
+            const descent = Math.abs((openTypeFont.descender || 0) * scale);
+            
+            return {
+                ascent,
+                descent,
+                fontSize: ascent + descent
+            };
+        }
+        catch (error)
+        {
+            // If anything goes wrong, return null to fall back to canvas measurement
+            return null;
+        }
+    }
+
+    /**
+     * Debug function to compare OpenType and Canvas measurements
+     * @param text - The text to measure
+     * @param context - The canvas context
+     * @returns Object with both measurements for comparison
+     */
+    public static debugMeasureComparison(
+        text: string,
+        context: ICanvasRenderingContext2D
+    ): { openType: number | null; canvas: number; difference: number | null }
+    {
+        // Get OpenType measurement
+        const openTypeWidth = CanvasTextMetrics._measureTextWithOpenType(text, 0, context);
+        
+        // Get canvas measurement (without letterSpacing)
+        const canvasMetrics = context.measureText(text);
+        const canvasWidth = Math.max(canvasMetrics.width, 
+            canvasMetrics.actualBoundingBoxRight - canvasMetrics.actualBoundingBoxLeft);
+        
+        const difference = openTypeWidth !== null ? Math.abs(openTypeWidth - canvasWidth) : null;
+        
+        console.log('Measurement comparison:', {
+            text,
+            openType: openTypeWidth,
+            canvas: canvasWidth,
+            difference,
+            percentDiff: difference !== null ? (difference / canvasWidth * 100).toFixed(2) + '%' : null
+        });
+        
+        return {
+            openType: openTypeWidth,
+            canvas: canvasWidth,
+            difference
+        };
+    }
+
+    /**
+     * Debug function to check what OpenType fonts are available in cache
+     */
+    public static debugOpenTypeFontsInCache(): void
+    {
+        console.log('=== OpenType Fonts in Cache ===');
+        
+        // This is a bit hacky, but we need to inspect the cache
+        // We'll try common font names and see what's available
+        const commonFonts = ['Arial', 'Helvetica', 'Times', 'Georgia', 'Verdana', 'Courier'];
+        
+        commonFonts.forEach(fontName => {
+            const cacheKey = `${fontName}-opentype`;
+            const cached = Cache.get(cacheKey);
+            if (cached) {
+                console.log(`Found OpenType font: ${fontName}`, cached);
+            } else {
+                console.log(`No OpenType font for: ${fontName}`);
+            }
+        });
+        
+        console.log('=== End OpenType Cache Debug ===');
     }
 }

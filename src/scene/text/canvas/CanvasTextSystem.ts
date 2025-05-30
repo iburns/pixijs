@@ -425,8 +425,9 @@ export class CanvasTextSystem implements System
 
         let currentPosition = x;
 
+        // Use OpenType-enabled measurement for more accurate letter spacing calculations
         const stringArray = CanvasTextMetrics.graphemeSegmenter(text);
-        let previousWidth = context.measureText(text).width;
+        let previousWidth = CanvasTextMetrics.measureTextWidth(text, 0, context);
         let currentWidth = 0;
 
         for (let i = 0; i < stringArray.length; ++i)
@@ -447,7 +448,7 @@ export class CanvasTextSystem implements System
             {
                 textStr += stringArray[j];
             }
-            currentWidth = context.measureText(textStr).width;
+            currentWidth = CanvasTextMetrics.measureTextWidth(textStr, 0, context);
             currentPosition += previousWidth - currentWidth + letterSpacing;
             previousWidth = currentWidth;
         }

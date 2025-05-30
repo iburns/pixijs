@@ -10,6 +10,8 @@ import { LoaderParserPriority } from './LoaderParser';
 import type { ResolvedAsset } from '../../types';
 import type { LoaderParser } from './LoaderParser';
 
+import opentype from 'opentype.js'
+
 const validWeights = [
     'normal', 'bold',
     '100', '200', '300', '400', '500', '600', '700', '800', '900',
@@ -115,6 +117,55 @@ function encodeURIWhenNeeded(uri: string)
 }
 
 /**
+ * Attempts to load an OpenType font for precise text measurement
+ * @param url - Font URL  
+ * @param name - Font family name
+ */
+async function loadOpenTypeFont(url: string, name: string): Promise<any>
+{
+
+    console.log('loadOpenTypeFont', url, name);
+    try
+    {
+        // Only load OpenType for TTF/OTF files (not WOFF/WOFF2)
+        const ext = path.extname(url).toLowerCase();
+        if (!ext.includes('ttf') && !ext.includes('otf'))
+        {
+            return null;
+        }
+        
+        let fontBuffer: ArrayBuffer;
+        
+        if (url.startsWith('data:'))
+        {
+            const response = await fetch(url);
+            fontBuffer = await response.arrayBuffer();
+        }
+        else
+        {
+            const response = await DOMAdapter.get().fetch(url);
+            fontBuffer = await response.arrayBuffer();
+        }
+        
+        const font = opentype.parse(fontBuffer);
+        
+        // Store the OpenType font in cache
+        Cache.set(`${name}-opentype`, {
+            font,
+            url,
+            fontFamily: name,
+        });
+        
+        return font;
+    }
+    catch (error)
+    {
+        // If OpenType loading fails, continue without it
+        return null;
+    }
+}
+
+/**
  * A loader plugin for handling web fonts
  * @example
  * import { Assets } from 'pixi.js';
@@ -153,6 +204,9 @@ export const loadWebFont = {
             const weights = options.data?.weights?.filter((weight) => validWeights.includes(weight)) ?? ['normal'];
             const data = options.data ?? {};
 
+            // Try to load OpenType font in parallel for better text measurement
+            const openTypeFontPromise = loadOpenTypeFont(url, name);
+
             for (let i = 0; i < weights.length; i++)
             {
                 const weight = weights[i];
@@ -174,6 +228,9 @@ export const loadWebFont = {
                 fontFaces,
             });
 
+            // Wait for OpenType font to load (but don't fail if it doesn't)
+            await openTypeFontPromise;
+
             return fontFaces.length === 1 ? fontFaces[0] : fontFaces;
         }
 
@@ -190,6 +247,7 @@ export const loadWebFont = {
             .forEach((t) =>
             {
                 Cache.remove(`${t.family}-and-url`);
+                Cache.remove(`${t.family}-opentype`);
                 DOMAdapter.get().getFontFaceSet().delete(t);
             });
     }
