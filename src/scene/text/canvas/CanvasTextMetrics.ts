@@ -399,18 +399,9 @@ export class CanvasTextMetrics
             const { font } = openTypeFontData;
             const fontSize = fontInfo.size;
 
-            console.log('Using OpenType measurement:', { 
-                text, 
-                fontSize, 
-                letterSpacing, 
-                fontFamily: fontInfo.family 
-            });
-
             // Use OpenType's built-in getAdvanceWidth method for accurate measurement
             // Note: OpenType.js getAdvanceWidth expects (text, fontSize, options)
             let totalWidth = font.getAdvanceWidth(text, fontSize);
-
-            console.log(`OpenType advance width for "${text}": ${totalWidth}`);
 
             // Add letter spacing manually since OpenType doesn't account for it
             if (letterSpacing > 0)
@@ -420,11 +411,9 @@ export class CanvasTextMetrics
                 {
                     const letterSpacingAddition = letterSpacing * (characterCount - 1);
                     totalWidth += letterSpacingAddition;
-                    console.log(`Added letter spacing: ${letterSpacingAddition} (${letterSpacing} * ${characterCount - 1})`);
                 }
             }
 
-            console.log(`Final OpenType width for "${text}": ${totalWidth}`);
             return totalWidth;
         }
         catch (error)
@@ -463,8 +452,6 @@ export class CanvasTextMetrics
             // Extract first font family and remove quotes and fallbacks
             const families = family.split(',');
             family = families[0].trim().replace(/['"]/g, '');
-            
-            console.log('Parsed font context:', { font, size, family });
             
             return { family, size };
         }
@@ -895,7 +882,6 @@ export class CanvasTextMetrics
      */
     public static measureFont(font: string): FontMetrics
     {
-        console.log('CanvasTextMetrics.measureFont', font);
         // as this method is used for preparing assets, don't recalculate things if we don't need to
         if (CanvasTextMetrics._fonts[font])
         {
@@ -909,7 +895,6 @@ export class CanvasTextMetrics
         if (openTypeMetrics)
         {
             CanvasTextMetrics._fonts[font] = openTypeMetrics;
-            console.log('CanvasTextMetrics.measureFont', openTypeMetrics);
             return openTypeMetrics;
         }
         
@@ -1054,6 +1039,7 @@ export class CanvasTextMetrics
         }
         catch (error)
         {
+            console.error('Error measuring font with OpenType:', error);
             // If anything goes wrong, return null to fall back to canvas measurement
             return null;
         }
