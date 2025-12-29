@@ -2,7 +2,7 @@
 export const mSDFBit = {
     name: 'msdf-bit',
     fragment: {
-        header: /* wgsl */`
+        header: /* wgsl */ `
             fn calculateMSDFAlpha(msdfColor:vec4<f32>, shapeColor:vec4<f32>, distance:f32) -> f32 {
 
                 // MSDF
@@ -15,30 +15,30 @@ export const mSDFBit = {
 
                 var screenPxDistance = distance * (median - 0.5);
                 var alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-                if (median < 0.01) {
-                    alpha = 0.0;
-                } else if (median > 0.99) {
-                    alpha = 1.0;
-                }
+
+                // if (median < 0.05) {
+                //     alpha = 0.0;
+                // } else if (median > 0.95) {
+                //     alpha = 1.0;
+                // }
 
                 // Gamma correction for coverage-like alpha
                 var luma: f32 = dot(shapeColor.rgb, vec3<f32>(0.299, 0.587, 0.114));
                 var gamma: f32 = mix(1.0, 1.0 / 2.2, luma);
                 var coverage: f32 = pow(shapeColor.a * alpha, gamma);
 
-                return coverage;
+                return shapeColor.a * alpha;
 
             }
         `,
-    }
-
+    },
 };
 
 /** @internal */
 export const mSDFBitGl = {
     name: 'msdf-bit',
     fragment: {
-        header: /* glsl */`
+        header: /* glsl */ `
             float calculateMSDFAlpha(vec4 msdfColor, vec4 shapeColor, float distance) {
 
                 // MSDF
@@ -52,20 +52,19 @@ export const mSDFBitGl = {
                 float screenPxDistance = distance * (median - 0.5);
                 float alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
 
-                if (median < 0.01) {
-                    alpha = 0.0;
-                } else if (median > 0.99) {
-                    alpha = 1.0;
-                }
+                // if (median < 0.05) {
+                //     alpha = 0.0;
+                // } else if (median > 0.95) {
+                //     alpha = 1.0;
+                // }
 
                 // Gamma correction for coverage-like alpha
                 float luma = dot(shapeColor.rgb, vec3(0.299, 0.587, 0.114));
                 float gamma = mix(1.0, 1.0 / 2.2, luma);
                 float coverage = pow(shapeColor.a * alpha, gamma);
 
-                return coverage;
+                return shapeColor.a * alpha;
             }
         `,
-    }
-
+    },
 };

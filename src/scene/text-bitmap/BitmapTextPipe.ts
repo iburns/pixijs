@@ -212,11 +212,15 @@ export class BitmapTextPipe implements RenderPipe<BitmapText>
 
         const dx = Math.sqrt((a * a) + (b * b));
         const dy = Math.sqrt((c * c) + (d * d));
-        const worldScale = (Math.abs(dx) + Math.abs(dy)) / 2;
+        const worldScale = Math.max(dx, dy); // ; (Math.abs(dx) + Math.abs(dy)) / 2;
 
-        const fontScale = dynamicFont.baseRenderedFontSize / bitmapText._style.fontSize;
+        // const fontScale =
+        //   dynamicFont.baseRenderedFontSize / bitmapText._style.fontSize;
 
-        const distance = worldScale * dynamicFont.distanceField.range * (1 / fontScale);
+        // const distance =
+        //   worldScale * dynamicFont.distanceField.range * (1 / fontScale);
+        const res = 2; // renderer.resolution; // Pixi renderer resolution (often = devicePixelRatio)
+        const distance = worldScale * dynamicFont.distanceField.range * res;
 
         context.customShader.resources.localUniforms.uniforms.uDistance = distance;
     }
