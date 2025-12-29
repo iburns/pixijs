@@ -114,8 +114,6 @@ export class BitmapTextPipe implements RenderPipe<BitmapText>
         const chars = CanvasTextMetrics.graphemeSegmenter(bitmapText.text);
         const style = bitmapText._style;
 
-        let currentY = bitmapFont.baseLineOffset;
-
         // measure our text...
         const bitmapTextLayout = getBitmapTextLayout(chars, style, bitmapFont, true);
 
@@ -123,7 +121,7 @@ export class BitmapTextPipe implements RenderPipe<BitmapText>
         const scale = bitmapTextLayout.scale;
 
         let tx = bitmapTextLayout.width;
-        let ty = bitmapTextLayout.height + bitmapTextLayout.offsetY;
+        let ty = bitmapTextLayout.height;
 
         if (style._stroke)
         {
@@ -137,23 +135,24 @@ export class BitmapTextPipe implements RenderPipe<BitmapText>
 
         const tint = bitmapFont.applyFillAsTint ? style._fill.color : 0xFFFFFF;
 
-        let fontSize = bitmapFont.fontMetrics.fontSize;
         let lineHeight = bitmapFont.lineHeight;
 
         if (style.lineHeight)
         {
-            fontSize = style.fontSize / scale;
             lineHeight = style.lineHeight / scale;
         }
 
-        let linePositionYShift = (lineHeight - fontSize) / 2;
+        // Compute baseline offset from top of the line box
+        let baselineDelta = 0;
 
         // if `currentY` is no longer starts from `baseLineOffset`
         // the `baseLineOffset` below may also need to be removed
-        if (linePositionYShift - bitmapFont.baseLineOffset < 0)
+        if (bitmapFont.distanceField?.type && bitmapFont.distanceField.type !== 'none')
         {
-            linePositionYShift = 0;
+            baselineDelta -= bitmapFont.distanceField.range;
         }
+
+        let currentY = 0;
 
         for (let i = 0; i < bitmapTextLayout.lines.length; i++)
         {
@@ -171,8 +170,8 @@ export class BitmapTextPipe implements RenderPipe<BitmapText>
                     context.texture(
                         texture,
                         tint ? tint : 'black',
-                        Math.round(line.charPositions[j] + charData.xOffset),
-                        Math.round(currentY + charData.yOffset + linePositionYShift),
+                        line.charPositions[j] + charData.xOffset,
+                        currentY + charData.yOffset + baselineDelta,
                         texture.orig.width,
                         texture.orig.height,
                     );
