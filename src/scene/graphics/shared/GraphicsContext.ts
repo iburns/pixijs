@@ -1107,9 +1107,9 @@ export class GraphicsContext extends EventEmitter<{
             {
                 const data = instruction.data as StrokeInstruction['data'];
 
-                const alignment = data.style.alignment;
+                // const alignment = data.style.alignment;
 
-                const outerPadding = (data.style.width * (1 - alignment));
+                const outerPadding = 0; // (data.style.width * (1 - alignment));
 
                 const _bounds = data.path.bounds;
 
