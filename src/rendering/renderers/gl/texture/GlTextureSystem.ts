@@ -79,9 +79,13 @@ export class GlTextureSystem implements System, CanvasGenerator
     {
         this._gl = gl;
 
-        this._mapFormatToInternalFormat = mapFormatToGlInternalFormat(gl, this._renderer.context.extensions);
-        this._mapFormatToType = mapFormatToGlType(gl);
-        this._mapFormatToFormat = mapFormatToGlFormat(gl);
+        if (!this._mapFormatToInternalFormat)
+        {
+            this._mapFormatToInternalFormat = mapFormatToGlInternalFormat(gl, this._renderer.context.extensions);
+
+            this._mapFormatToType = mapFormatToGlType(gl);
+            this._mapFormatToFormat = mapFormatToGlFormat(gl);
+        }
 
         this._glTextures = Object.create(null);
         this._glSamplers = Object.create(null);

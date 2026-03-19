@@ -7,7 +7,7 @@ export interface PackedTextures
     curveData: Float32Array;
     curveWidth: number;
     curveHeight: number;
-    bandData: Uint32Array;
+    bandData: Float32Array;
     bandWidth: number;
     bandHeight: number;
     atlas: Map<number, GlyphAtlasEntry>;
@@ -62,7 +62,13 @@ export function packTextures(
     const bandHeight = Math.max(1, Math.ceil(totalBandTexels / TEXTURE_WIDTH));
 
     const curveData = new Float32Array(TEXTURE_WIDTH * curveHeight * 4);
-    const bandData = new Uint32Array(TEXTURE_WIDTH * bandHeight * 4);
+
+    // Band data is uint32 values, but we store them as float32 bit patterns
+    // to avoid integer textures (usampler2D) which cause sampler type mismatch
+    // issues with other PixiJS shaders. The shader reinterprets with floatBitsToUint().
+    const bandBuffer = new ArrayBuffer(TEXTURE_WIDTH * bandHeight * 4 * 4);
+    const bandDataU32 = new Uint32Array(bandBuffer);
+    const bandData = new Float32Array(bandBuffer);
 
     // Second pass: pack data
     let curveOffset = 0;
@@ -120,14 +126,14 @@ export function packTextures(
             const curveCount = bd.hBands[bi].length;
             const dataOffset = listOffset - bandOffset;
 
-            writeBandTexel(bandData, bandOffset + bi, curveCount, dataOffset, 0, 0);
+            writeBandTexel(bandDataU32, bandOffset + bi, curveCount, dataOffset, 0, 0);
 
             for (let ci = 0; ci < curveCount; ci++)
             {
                 const curveIndex = bd.hBands[bi][ci];
                 const pos = curvePositions[curveIndex];
 
-                writeBandTexel(bandData, listOffset, pos.x, pos.y, 0, 0);
+                writeBandTexel(bandDataU32, listOffset, pos.x, pos.y, 0, 0);
                 listOffset++;
             }
         }
@@ -139,14 +145,14 @@ export function packTextures(
             const curveCount = bd.vBands[bi].length;
             const dataOffset = listOffset - bandOffset;
 
-            writeBandTexel(bandData, headerIdx, curveCount, dataOffset, 0, 0);
+            writeBandTexel(bandDataU32, headerIdx, curveCount, dataOffset, 0, 0);
 
             for (let ci = 0; ci < curveCount; ci++)
             {
                 const curveIndex = bd.vBands[bi][ci];
                 const pos = curvePositions[curveIndex];
 
-                writeBandTexel(bandData, listOffset, pos.x, pos.y, 0, 0);
+                writeBandTexel(bandDataU32, listOffset, pos.x, pos.y, 0, 0);
                 listOffset++;
             }
         }
@@ -202,9 +208,7 @@ function writeBandTexel(
     r: number, g: number, b: number, a: number,
 ): void
 {
-    const row = Math.floor(texelIndex / TEXTURE_WIDTH);
-    const col = texelIndex % TEXTURE_WIDTH;
-    const idx = ((row * TEXTURE_WIDTH) + col) * 4;
+    const idx = (((texelIndex / TEXTURE_WIDTH) | 0) * TEXTURE_WIDTH + (texelIndex % TEXTURE_WIDTH)) * 4;
 
     data[idx] = r;
     data[idx + 1] = g;

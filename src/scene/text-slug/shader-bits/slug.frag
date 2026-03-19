@@ -1,7 +1,6 @@
 #version 300 es
 precision highp float;
 precision highp int;
-precision highp usampler2D;
 
 #define kLogBandTextureWidth 12
 
@@ -11,7 +10,7 @@ flat in vec4 vBanding;
 flat in ivec4 vGlyph;
 
 uniform sampler2D uCurveTexture;
-uniform usampler2D uBandTexture;
+uniform sampler2D uBandTexture;
 
 out vec4 fragColor;
 
@@ -20,7 +19,8 @@ vec4 curveLoad(ivec2 loc) {
 }
 
 uvec4 bandLoad(ivec2 loc) {
-    return texelFetch(uBandTexture, loc, 0);
+    vec4 raw = texelFetch(uBandTexture, loc, 0);
+    return uvec4(floatBitsToUint(raw.x), floatBitsToUint(raw.y), floatBitsToUint(raw.z), floatBitsToUint(raw.w));
 }
 
 uint calcRootCode(float y1, float y2, float y3) {

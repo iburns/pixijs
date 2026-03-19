@@ -7,7 +7,6 @@ import { localUniformBitGl } from '../../../rendering/high-shader/shader-bits/lo
 import { roundPixelsBitGl } from '../../../rendering/high-shader/shader-bits/roundPixelsBit';
 import { getBatchSamplersUniformGroup } from '../../../rendering/renderers/gl/shader/getBatchSamplersUniformGroup';
 import { Shader } from '../../../rendering/renderers/shared/shader/Shader';
-import { Texture } from '../../../rendering/renderers/shared/texture/Texture';
 import { UniformGroup } from '../../../rendering/renderers/shared/shader/UniformGroup';
 import { type Renderer } from '../../../rendering/renderers/types';
 
@@ -32,7 +31,6 @@ export class GlGraphicsAdaptor implements GraphicsAdaptor
     } as const;
 
     public shader: Shader;
-    private _maxTextures = 0;
 
     public contextChange(renderer: Renderer): void
     {
@@ -42,7 +40,7 @@ export class GlGraphicsAdaptor implements GraphicsAdaptor
             uRound: { value: 0, type: 'f32' },
         });
 
-        const maxTextures = this._maxTextures = renderer.limits.maxBatchableTextures;
+        const maxTextures = renderer.limits.maxBatchableTextures;
 
         const glProgram = compileHighShaderGlProgram({
             name: 'graphics',
@@ -94,13 +92,6 @@ export class GlGraphicsAdaptor implements GraphicsAdaptor
                 for (let j = 0; j < batch.textures.count; j++)
                 {
                     renderer.texture.bind(batch.textures.textures[j], j);
-                }
-
-                // Bind empty (float) textures to unused units to prevent sampler type
-                // mismatches from integer textures left by previous shaders.
-                for (let j = batch.textures.count; j < this._maxTextures; j++)
-                {
-                    renderer.texture.bind(Texture.EMPTY, j);
                 }
 
                 renderer.geometry.draw(batch.topology, batch.size, batch.start);

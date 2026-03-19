@@ -199,6 +199,8 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         proxy._roundPixels = container._roundPixels;
     }
 
+    private _viewportArr: [number, number] = [0, 0];
+
     private _updateViewport(gpuData: SlugTextGpuData): void
     {
         const shader = gpuData.mesh?.shader as SlugShader;
@@ -207,7 +209,9 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         {
             const renderer = this._renderer;
 
-            shader.viewport = [renderer.width, renderer.height];
+            this._viewportArr[0] = renderer.width;
+            this._viewportArr[1] = renderer.height;
+            shader.viewport = this._viewportArr;
         }
     }
 

@@ -7,7 +7,7 @@ struct SlugUniforms {
 
 @group(2) @binding(0) var<uniform> slugUniforms: SlugUniforms;
 @group(2) @binding(1) var uCurveTexture: texture_2d<f32>;
-@group(2) @binding(2) var uBandTexture: texture_2d<u32>;
+@group(2) @binding(2) var uBandTexture: texture_2d<f32>;
 
 struct FragmentInput {
     @location(0) vTexcoord: vec2<f32>,
@@ -24,7 +24,8 @@ fn curveLoad(loc: vec2<i32>) -> vec4<f32> {
 }
 
 fn bandLoad(loc: vec2<i32>) -> vec4<u32> {
-    return textureLoad(uBandTexture, loc, 0);
+    let raw = textureLoad(uBandTexture, loc, 0);
+    return vec4<u32>(bitcast<u32>(raw.x), bitcast<u32>(raw.y), bitcast<u32>(raw.z), bitcast<u32>(raw.w));
 }
 
 fn calcRootCode(y1: f32, y2: f32, y3: f32) -> u32 {

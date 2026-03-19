@@ -108,7 +108,7 @@ export class SlugAtlas
         };
     }
 
-    public getBandTextureData(): { data: Uint32Array; width: number; height: number }
+    public getBandTextureData(): { data: Float32Array; width: number; height: number }
     {
         return {
             data: this._packed.bandData,

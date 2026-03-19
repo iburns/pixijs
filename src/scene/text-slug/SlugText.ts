@@ -22,6 +22,21 @@ export class SlugTextGpuData implements GPUData
     {
         if (this.mesh)
         {
+            // Explicitly destroy geometry and shader to free GPU resources (VAOs, buffers, textures)
+            if (this.mesh.geometry)
+            {
+                this.mesh.geometry.destroy();
+            }
+
+            if (this.mesh.shader)
+            {
+                const resources = this.mesh.shader.resources;
+
+                if (resources.uCurveTexture?.destroy) resources.uCurveTexture.destroy();
+                if (resources.uBandTexture?.destroy) resources.uBandTexture.destroy();
+                this.mesh.shader.destroy();
+            }
+
             this.mesh.destroy();
             this.mesh = null;
         }

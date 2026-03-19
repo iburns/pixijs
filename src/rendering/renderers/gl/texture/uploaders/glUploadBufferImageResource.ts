@@ -10,7 +10,7 @@ export const glUploadBufferImageResource = {
 
     upload(source: TextureSource, glTexture: GlTexture, gl: GlRenderingContext)
     {
-        if (glTexture.width === source.width && glTexture.height === source.height)
+        if (glTexture.width === source.width || glTexture.height === source.height)
         {
             gl.texSubImage2D(
                 gl.TEXTURE_2D,

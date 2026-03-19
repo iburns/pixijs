@@ -26,14 +26,6 @@ const GLSL_TO_SIZE: Dict<number> = {
     mat4:     16,
 
     sampler2D:  1,
-    isampler2D:  1,
-    usampler2D:  1,
-    samplerCube:  1,
-    isamplerCube:  1,
-    usamplerCube:  1,
-    sampler2DArray:  1,
-    isampler2DArray:  1,
-    usampler2DArray:  1,
 };
 
 /**
