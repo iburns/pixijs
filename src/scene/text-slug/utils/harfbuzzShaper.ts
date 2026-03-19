@@ -98,6 +98,8 @@ export class HarfBuzzShaper
 
     public shape(text: string): ShapedGlyph[]
     {
+        if (!text) return [];
+
         const hb = this._hb;
         const buffer = hb.createBuffer();
 
