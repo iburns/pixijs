@@ -10,6 +10,9 @@ export class SlugAtlas
 {
     public readonly fontData: SlugFontData;
 
+    /** True when textures have changed since last consumed */
+    public dirty = false;
+
     private _packed: PackedTextures;
     private _knownGlyphIds: Set<number> = new Set();
 
@@ -131,5 +134,6 @@ export class SlugAtlas
         }
 
         this._packed = packTextures(glyphs, bandDataList);
+        this.dirty = true;
     }
 }

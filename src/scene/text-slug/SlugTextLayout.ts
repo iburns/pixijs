@@ -2,6 +2,7 @@ import { Geometry } from '../../rendering/renderers/shared/geometry/Geometry';
 
 import type { SlugFont } from './SlugFont';
 import type { GlyphAtlasEntry } from './SlugTypes';
+import type { ShapedGlyph } from './utils/harfbuzzShaper';
 
 export interface SlugTextLayoutOptions
 {
@@ -14,6 +15,11 @@ export interface SlugTextLayoutOptions
     wordWrap?: boolean;
     wordWrapWidth?: number;
 }
+
+// Shared buffer for uint32-to-float bit reinterpretation (avoids per-call allocation)
+const _u32Buf = new ArrayBuffer(4);
+const _u32View = new Uint32Array(_u32Buf);
+const _f32View = new Float32Array(_u32Buf);
 
 /**
  * Build a PIXI Geometry for Slug text rendering.
@@ -40,14 +46,71 @@ export function buildSlugGeometry(
     const defaultLineHeight = (fontData.ascender - fontData.descender) * scale;
     const lineHeight = customLineHeight ?? defaultLineHeight;
 
-    // Split text into lines (handle word wrap if enabled)
-    const lines = wordWrap && wordWrapWidth > 0
-        ? wrapText(text, font, scale, letterSpacing, wordWrapWidth)
-        : text.split('\n');
+    // Split text into lines, shaping each line once and caching the result
+    const rawLines = text.split('\n');
+    const lines: string[] = [];
+    const shapedLines: ShapedGlyph[][] = [];
 
-    // Calculate line widths for alignment
-    const lineWidths = lines.map((line) => measureLine(line, font, scale, letterSpacing));
+    if (wordWrap && wordWrapWidth > 0)
+    {
+        // Word wrap: shape words and measure to determine line breaks
+        for (const paragraph of rawLines)
+        {
+            const words = paragraph.split(' ');
+            let currentLine = '';
+
+            for (const word of words)
+            {
+                const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
+                const testShaped = font.shape(testLine);
+                const testWidth = measureShaped(testShaped, scale, letterSpacing);
+
+                if (testWidth > wordWrapWidth && currentLine.length > 0)
+                {
+                    // Commit current line (shape it for final use)
+                    const shaped = font.shape(currentLine);
+
+                    lines.push(currentLine);
+                    shapedLines.push(shaped);
+                    currentLine = word;
+                }
+                else
+                {
+                    currentLine = testLine;
+                }
+            }
+
+            // Commit final line of paragraph
+            const shaped = font.shape(currentLine);
+
+            lines.push(currentLine);
+            shapedLines.push(shaped);
+        }
+    }
+    else
+    {
+        for (const line of rawLines)
+        {
+            lines.push(line);
+            shapedLines.push(font.shape(line));
+        }
+    }
+
+    // Measure line widths from cached shaped results (no re-shaping)
+    const lineWidths = shapedLines.map((shaped) => measureShaped(shaped, scale, letterSpacing));
     const maxWidth = Math.max(...lineWidths, 0);
+
+    // Ensure all glyph IDs are in the atlas in one pass
+    const allGlyphIds: Set<number> = new Set();
+
+    for (const shaped of shapedLines)
+    {
+        for (const sg of shaped)
+        {
+            allGlyphIds.add(sg.glyphId);
+        }
+    }
+    atlas.ensureGlyphIds(Array.from(allGlyphIds));
 
     const positions: number[] = [];
     const texcoords: number[] = [];
@@ -59,19 +122,13 @@ export function buildSlugGeometry(
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++)
     {
-        const line = lines[lineIdx];
         const lineWidth = lineWidths[lineIdx];
+        const shapedGlyphs = shapedLines[lineIdx];
 
         let offsetX = 0;
 
         if (align === 'center') offsetX = (maxWidth - lineWidth) / 2;
         else if (align === 'right') offsetX = maxWidth - lineWidth;
-
-        // Shape the line using HarfBuzz
-        const shapedGlyphs = font.shape(line);
-        const glyphIds = shapedGlyphs.map((g) => g.glyphId);
-
-        atlas.ensureGlyphIds(glyphIds);
 
         let cursorX = offsetX;
         const baselineY = (fontData.ascender * scale) + (lineIdx * lineHeight);
@@ -164,62 +221,66 @@ function appendGlyphQuad(
 
     // Inverse Jacobian
     const invScale = 1.0 / scale;
-    const jacXX = invScale;
-    const jacXY = 0;
-    const jacYX = 0;
-    const jacYY = -invScale;
 
-    // Outward normals for dilation: BL, BR, TR, TL
-    const normals: [number, number][] = [
-        [-1, 1],
-        [1, 1],
-        [1, -1],
-        [-1, -1],
-    ];
+    const bsx = entry.bandScaleX;
+    const bsy = entry.bandScaleY;
+    const box = entry.bandOffsetX;
+    const boy = entry.bandOffsetY;
+    const cr = color[0];
+    const cg = color[1];
+    const cb = color[2];
+    const ca = color[3];
 
-    // Vertex corners: BL, BR, TR, TL
-    const corners = [
-        { x: x0, y: y1, emX: emX0, emY: emY0 },
-        { x: x1, y: y1, emX: emX1, emY: emY0 },
-        { x: x1, y: y0, emX: emX1, emY: emY1 },
-        { x: x0, y: y0, emX: emX0, emY: emY1 },
-    ];
+    // BL vertex (normal: -1, 1)
+    positions.push(x0, y1, -1, 1);
+    texcoords.push(emX0, emY0, packedZ, packedW);
+    jacobians.push(invScale, 0, 0, -invScale);
+    banding.push(bsx, bsy, box, boy);
+    colors.push(cr, cg, cb, ca);
 
-    for (let i = 0; i < 4; i++)
-    {
-        const c = corners[i];
-        const n = normals[i];
+    // BR vertex (normal: 1, 1)
+    positions.push(x1, y1, 1, 1);
+    texcoords.push(emX1, emY0, packedZ, packedW);
+    jacobians.push(invScale, 0, 0, -invScale);
+    banding.push(bsx, bsy, box, boy);
+    colors.push(cr, cg, cb, ca);
 
-        positions.push(c.x, c.y, n[0], n[1]);
-        texcoords.push(c.emX, c.emY, packedZ, packedW);
-        jacobians.push(jacXX, jacXY, jacYX, jacYY);
-        banding.push(entry.bandScaleX, entry.bandScaleY, entry.bandOffsetX, entry.bandOffsetY);
-        colors.push(color[0], color[1], color[2], color[3]);
-    }
+    // TR vertex (normal: 1, -1)
+    positions.push(x1, y0, 1, -1);
+    texcoords.push(emX1, emY1, packedZ, packedW);
+    jacobians.push(invScale, 0, 0, -invScale);
+    banding.push(bsx, bsy, box, boy);
+    colors.push(cr, cg, cb, ca);
+
+    // TL vertex (normal: -1, -1)
+    positions.push(x0, y0, -1, -1);
+    texcoords.push(emX0, emY1, packedZ, packedW);
+    jacobians.push(invScale, 0, 0, -invScale);
+    banding.push(bsx, bsy, box, boy);
+    colors.push(cr, cg, cb, ca);
 
     indices.push(
-        baseVertex + 0, baseVertex + 1, baseVertex + 2,
-        baseVertex + 0, baseVertex + 2, baseVertex + 3,
+        baseVertex, baseVertex + 1, baseVertex + 2,
+        baseVertex, baseVertex + 2, baseVertex + 3,
     );
 }
 
 function uint32BitsToFloat(bits: number): number
 {
-    const buf = new ArrayBuffer(4);
+    _u32View[0] = bits >>> 0;
 
-    new Uint32Array(buf)[0] = bits >>> 0;
-
-    return new Float32Array(buf)[0];
+    return _f32View[0];
 }
 
-function measureLine(
-    line: string,
-    font: SlugFont,
+/**
+ * Measure width from pre-shaped glyphs (avoids re-shaping).
+ */
+function measureShaped(
+    shapedGlyphs: ShapedGlyph[],
     scale: number,
     letterSpacing: number,
 ): number
 {
-    const shapedGlyphs = font.shape(line);
     let width = 0;
     let prevCluster = -1;
 
@@ -235,42 +296,4 @@ function measureLine(
     }
 
     return width;
-}
-
-function wrapText(
-    text: string,
-    font: SlugFont,
-    scale: number,
-    letterSpacing: number,
-    wrapWidth: number,
-): string[]
-{
-    const result: string[] = [];
-    const paragraphs = text.split('\n');
-
-    for (const paragraph of paragraphs)
-    {
-        const words = paragraph.split(' ');
-        let currentLine = '';
-
-        for (const word of words)
-        {
-            const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
-            const testWidth = measureLine(testLine, font, scale, letterSpacing);
-
-            if (testWidth > wrapWidth && currentLine.length > 0)
-            {
-                result.push(currentLine);
-                currentLine = word;
-            }
-            else
-            {
-                currentLine = testLine;
-            }
-        }
-
-        result.push(currentLine);
-    }
-
-    return result;
 }

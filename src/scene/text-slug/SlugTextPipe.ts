@@ -110,17 +110,16 @@ export class SlugTextPipe implements RenderPipe<SlugText>
             wordWrapWidth: slugText._wordWrapWidth,
         });
 
-        const atlasChanged = true;
-
         if (gpuData.mesh)
         {
             // Update existing mesh
             gpuData.mesh.geometry.destroy();
             gpuData.mesh.geometry = geometry;
 
-            if (atlasChanged || gpuData.texturesDirty)
+            if (atlas.dirty || gpuData.texturesDirty)
             {
                 this._updateTextures(slugText, gpuData);
+                atlas.dirty = false;
             }
         }
         else
@@ -173,27 +172,17 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         const curveTexData = atlas.getCurveTextureData();
         const bandTexData = atlas.getBandTextureData();
 
-        // Create new texture sources
-        const curveSource = new BufferImageSource({
-            resource: curveTexData.data,
-            width: curveTexData.width,
-            height: curveTexData.height,
-            alphaMode: 'no-premultiply-alpha',
-            scaleMode: 'nearest',
-        });
+        // Update existing texture sources in-place instead of creating new ones
+        const curveSource = shader.resources.uCurveTexture as BufferImageSource;
+        const bandSource = shader.resources.uBandTexture as BufferImageSource;
 
-        const bandSource = new BufferImageSource({
-            resource: bandTexData.data,
-            width: bandTexData.width,
-            height: bandTexData.height,
-            alphaMode: 'no-premultiply-alpha',
-            scaleMode: 'nearest',
-        });
+        curveSource.resource = curveTexData.data;
+        curveSource.resize(curveTexData.width, curveTexData.height);
+        curveSource.update();
 
-        shader.resources.uCurveTexture = curveSource;
-        shader.resources.uCurveTextureSampler = curveSource.style;
-        shader.resources.uBandTexture = bandSource;
-        shader.resources.uBandTextureSampler = bandSource.style;
+        bandSource.resource = bandTexData.data;
+        bandSource.resize(bandTexData.width, bandTexData.height);
+        bandSource.update();
 
         gpuData.texturesDirty = false;
     }
