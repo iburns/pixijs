@@ -56,11 +56,6 @@ export class SlugShader extends Shader
         });
     }
 
-    set viewport(value: [number, number])
-    {
-        this.resources.slugUniforms.uniforms.uViewport = value;
-    }
-
     set debugMode(value: number)
     {
         this.resources.slugUniforms.uniforms.uDebugMode = value;

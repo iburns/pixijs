@@ -15,8 +15,8 @@ export class SlugTextGpuData implements GPUData
 {
     /** The proxy Mesh managed by the pipe */
     public mesh: any = null;
-    /** Whether textures need re-upload */
-    public texturesDirty = true;
+    /** The atlas version this GPU data's textures were built from */
+    public atlasVersion = -1;
 
     public destroy(): void
     {
@@ -144,6 +144,18 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
         }
     }
 
+    /**
+     * Only mark text as needing rebuild on the first view update per frame.
+     * This matches AbstractText's pattern and prevents the render system's
+     * own onViewUpdate calls from triggering infinite rebuilds.
+     * @internal
+     */
+    public override onViewUpdate()
+    {
+        if (!this.didViewUpdate) this._didTextUpdate = true;
+        super.onViewUpdate();
+    }
+
     /** The text content to display. */
     get text(): string
     {
@@ -155,7 +167,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
         value = String(value ?? '');
         if (this._text === value) return;
         this._text = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -169,7 +180,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._font === value) return;
         this._font = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -183,7 +193,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._fontSize === value) return;
         this._fontSize = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -196,7 +205,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     set color(value: ColorSource)
     {
         this._color = new Color(value).toArray() as [number, number, number, number];
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -221,7 +229,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._letterSpacing === value) return;
         this._letterSpacing = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -235,7 +242,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._align === value) return;
         this._align = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -249,7 +255,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._wordWrap === value) return;
         this._wordWrap = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 
@@ -263,7 +268,6 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     {
         if (this._wordWrapWidth === value) return;
         this._wordWrapWidth = value;
-        this._didTextUpdate = true;
         this.onViewUpdate();
     }
 

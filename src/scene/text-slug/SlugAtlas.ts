@@ -10,8 +10,13 @@ export class SlugAtlas
 {
     public readonly fontData: SlugFontData;
 
-    /** True when textures have changed since last consumed */
-    public dirty = false;
+    /**
+     * Monotonically increasing version counter.
+     * Bumped every time the atlas textures are rebuilt.
+     * Each consumer (SlugTextGpuData) tracks which version it last consumed,
+     * so multiple consumers of the same atlas stay in sync independently.
+     */
+    public version = 0;
 
     private _packed: PackedTextures;
     private _knownGlyphIds: Set<number> = new Set();
@@ -134,6 +139,6 @@ export class SlugAtlas
         }
 
         this._packed = packTextures(glyphs, bandDataList);
-        this.dirty = true;
+        this.version++;
     }
 }

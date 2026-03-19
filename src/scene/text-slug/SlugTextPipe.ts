@@ -98,7 +98,8 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         const font = slugText._font;
         const atlas = font.atlas;
 
-        // Build geometry (shaping + atlas ensuring happens inside)
+        // Build geometry (shaping + atlas ensuring happens inside buildSlugGeometry,
+        // which may call atlas.ensureGlyphIds and bump atlas.version)
         const geometry = buildSlugGeometry(font, {
             text: slugText._text,
             fontSize: slugText._fontSize,
@@ -116,10 +117,11 @@ export class SlugTextPipe implements RenderPipe<SlugText>
             gpuData.mesh.geometry.destroy();
             gpuData.mesh.geometry = geometry;
 
-            if (atlas.dirty || gpuData.texturesDirty)
+            // Use per-instance version tracking instead of shared dirty flag
+            if (gpuData.atlasVersion !== atlas.version)
             {
                 this._updateTextures(slugText, gpuData);
-                atlas.dirty = false;
+                gpuData.atlasVersion = atlas.version;
             }
         }
         else
@@ -160,7 +162,7 @@ export class SlugTextPipe implements RenderPipe<SlugText>
             });
 
             gpuData.mesh = mesh;
-            gpuData.texturesDirty = false;
+            gpuData.atlasVersion = atlas.version;
         }
     }
 
@@ -183,8 +185,6 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         bandSource.resource = bandTexData.data;
         bandSource.resize(bandTexData.width, bandTexData.height);
         bandSource.update();
-
-        gpuData.texturesDirty = false;
     }
 
     private _syncProxy(container: Renderable, proxy: Renderable): void
@@ -199,8 +199,6 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         proxy._roundPixels = container._roundPixels;
     }
 
-    private _viewportArr: [number, number] = [0, 0];
-
     private _updateViewport(gpuData: SlugTextGpuData): void
     {
         const shader = gpuData.mesh?.shader as SlugShader;
@@ -209,9 +207,8 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         {
             const renderer = this._renderer;
 
-            this._viewportArr[0] = renderer.width;
-            this._viewportArr[1] = renderer.height;
-            shader.viewport = this._viewportArr;
+            shader.resources.slugUniforms.uniforms.uViewport[0] = renderer.width;
+            shader.resources.slugUniforms.uniforms.uViewport[1] = renderer.height;
         }
     }
 
