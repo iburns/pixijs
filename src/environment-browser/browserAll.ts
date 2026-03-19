@@ -10,6 +10,7 @@ import '../scene/particle-container/init';
 import '../scene/text/init';
 import '../scene/text-bitmap/init';
 import '../scene/text-html/init';
+import '../scene/text-slug/init';
 import '../scene/sprite-tiling/init';
 import '../scene/sprite-nine-slice/init';
 import '../filters/init';

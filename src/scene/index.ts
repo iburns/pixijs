@@ -170,6 +170,13 @@ export * from './text/utils/canvasTextSplit';
 export * from './text/utils/generateTextStyleKey';
 export * from './text/utils/getPo2TextureFromSource';
 export * from './text/utils/updateTextBounds';
+export * from './text-slug/SlugAtlas';
+export * from './text-slug/SlugFont';
+export * from './text-slug/SlugShader';
+export * from './text-slug/SlugText';
+export * from './text-slug/SlugTextLayout';
+export * from './text-slug/SlugTextPipe';
+export * from './text-slug/SlugTypes';
 export * from './view/ViewContainer';
 /** @ignore */
 export { default as particlesFrag } from './particle-container/shared/shader/particles.frag';

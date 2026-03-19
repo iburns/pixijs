@@ -1,0 +1,262 @@
+import { ExtensionType } from '../../extensions/Extensions';
+import { BufferImageSource } from '../../rendering/renderers/shared/texture/sources/BufferImageSource';
+import { Mesh } from '../mesh/shared/Mesh';
+import { State } from '../../rendering/renderers/shared/state/State';
+import { SlugShader } from './SlugShader';
+import { SlugTextGpuData } from './SlugText';
+import { buildSlugGeometry } from './SlugTextLayout';
+
+import type { InstructionSet } from '../../rendering/renderers/shared/instructions/InstructionSet';
+import type { RenderPipe } from '../../rendering/renderers/shared/instructions/RenderPipe';
+import type { Renderable } from '../../rendering/renderers/shared/Renderable';
+import type { Renderer } from '../../rendering/renderers/types';
+import type { WebGLRenderer } from '../../rendering/renderers/gl/WebGLRenderer';
+import type { SlugText } from './SlugText';
+
+/** Whether the PIXI format mapping has been patched for integer textures */
+let formatPatched = false;
+
+/** @internal */
+export class SlugTextPipe implements RenderPipe<SlugText>
+{
+    /** @ignore */
+    public static extension = {
+        type: [
+            ExtensionType.WebGLPipes,
+            ExtensionType.WebGPUPipes,
+        ],
+        name: 'slugText',
+    } as const;
+
+    private _renderer: Renderer;
+
+    constructor(renderer: Renderer)
+    {
+        this._renderer = renderer;
+    }
+
+    public validateRenderable(slugText: SlugText): boolean
+    {
+        const gpuData = this._getGpuData(slugText);
+
+        if (!gpuData.mesh) return true;
+
+        return this._renderer.renderPipes.mesh.validateRenderable(gpuData.mesh);
+    }
+
+    public addRenderable(slugText: SlugText, instructionSet: InstructionSet): void
+    {
+        const gpuData = this._getGpuData(slugText);
+
+        if (slugText._didTextUpdate)
+        {
+            slugText._didTextUpdate = false;
+            this._rebuild(slugText, gpuData);
+        }
+
+        this._syncProxy(slugText, gpuData.mesh);
+        this._updateViewport(gpuData);
+
+        this._renderer.renderPipes.mesh.addRenderable(gpuData.mesh, instructionSet);
+    }
+
+    public updateRenderable(slugText: SlugText): void
+    {
+        const gpuData = this._getGpuData(slugText);
+
+        this._syncProxy(slugText, gpuData.mesh);
+        this._updateViewport(gpuData);
+
+        this._renderer.renderPipes.mesh.updateRenderable(gpuData.mesh);
+    }
+
+    public destroyRenderable(slugText: SlugText): void
+    {
+        const gpuData = slugText._gpuData[this._renderer.uid];
+
+        if (gpuData)
+        {
+            gpuData.destroy();
+            slugText._gpuData[this._renderer.uid] = null as any;
+        }
+    }
+
+    private _getGpuData(slugText: SlugText): SlugTextGpuData
+    {
+        return slugText._gpuData[this._renderer.uid] || this._initGpuData(slugText);
+    }
+
+    private _initGpuData(slugText: SlugText): SlugTextGpuData
+    {
+        const gpuData = new SlugTextGpuData();
+
+        slugText._gpuData[this._renderer.uid] = gpuData;
+
+        this._rebuild(slugText, gpuData);
+
+        return gpuData;
+    }
+
+    private _rebuild(slugText: SlugText, gpuData: SlugTextGpuData): void
+    {
+        const font = slugText._font;
+        const atlas = font.atlas;
+
+        // Ensure all characters in text are in atlas
+        const atlasChanged = atlas.ensureCharacters(slugText._text);
+
+        // Build geometry
+        const geometry = buildSlugGeometry(atlas, font.fontData, {
+            text: slugText._text,
+            fontSize: slugText._fontSize,
+            color: slugText._color,
+            letterSpacing: slugText._letterSpacing,
+            lineHeight: slugText._lineHeight,
+            align: slugText._align,
+            wordWrap: slugText._wordWrap,
+            wordWrapWidth: slugText._wordWrapWidth,
+        });
+
+        if (gpuData.mesh)
+        {
+            // Update existing mesh
+            gpuData.mesh.geometry.destroy();
+            gpuData.mesh.geometry = geometry;
+
+            if (atlasChanged || gpuData.texturesDirty)
+            {
+                this._updateTextures(slugText, gpuData);
+            }
+        }
+        else
+        {
+            // Create new mesh with shader
+            this._patchIntegerFormats();
+
+            const curveTexData = atlas.getCurveTextureData();
+            const bandTexData = atlas.getBandTextureData();
+
+            const curveSource = new BufferImageSource({
+                resource: curveTexData.data,
+                width: curveTexData.width,
+                height: curveTexData.height,
+                alphaMode: 'no-premultiply-alpha',
+                scaleMode: 'nearest',
+            });
+
+            const bandSource = new BufferImageSource({
+                resource: bandTexData.data,
+                width: bandTexData.width,
+                height: bandTexData.height,
+                alphaMode: 'no-premultiply-alpha',
+                scaleMode: 'nearest',
+            });
+
+            const shader = new SlugShader({
+                curveTexture: curveSource,
+                bandTexture: bandSource,
+            });
+
+            const state = State.for2d();
+
+            state.blendMode = 'normal';
+
+            const mesh = new Mesh({
+                geometry,
+                shader,
+                state,
+            });
+
+            gpuData.mesh = mesh;
+            gpuData.texturesDirty = false;
+        }
+    }
+
+    private _updateTextures(slugText: SlugText, gpuData: SlugTextGpuData): void
+    {
+        const atlas = slugText._font.atlas;
+        const shader = gpuData.mesh.shader as SlugShader;
+
+        const curveTexData = atlas.getCurveTextureData();
+        const bandTexData = atlas.getBandTextureData();
+
+        // Create new texture sources
+        const curveSource = new BufferImageSource({
+            resource: curveTexData.data,
+            width: curveTexData.width,
+            height: curveTexData.height,
+            alphaMode: 'no-premultiply-alpha',
+            scaleMode: 'nearest',
+        });
+
+        const bandSource = new BufferImageSource({
+            resource: bandTexData.data,
+            width: bandTexData.width,
+            height: bandTexData.height,
+            alphaMode: 'no-premultiply-alpha',
+            scaleMode: 'nearest',
+        });
+
+        shader.resources.uCurveTexture = curveSource;
+        shader.resources.uCurveTextureSampler = curveSource.style;
+        shader.resources.uBandTexture = bandSource;
+        shader.resources.uBandTextureSampler = bandSource.style;
+
+        gpuData.texturesDirty = false;
+    }
+
+    private _syncProxy(container: Renderable, proxy: Renderable): void
+    {
+        proxy.groupTransform = container.groupTransform;
+        proxy.groupColorAlpha = container.groupColorAlpha;
+        proxy.groupColor = container.groupColor;
+        proxy.groupBlendMode = container.groupBlendMode;
+        proxy.globalDisplayStatus = container.globalDisplayStatus;
+        proxy.localDisplayStatus = container.localDisplayStatus;
+        proxy.groupAlpha = container.groupAlpha;
+        proxy._roundPixels = container._roundPixels;
+    }
+
+    private _updateViewport(gpuData: SlugTextGpuData): void
+    {
+        const shader = gpuData.mesh?.shader as SlugShader;
+
+        if (shader)
+        {
+            const renderer = this._renderer;
+
+            shader.viewport = [renderer.width, renderer.height];
+        }
+    }
+
+    /**
+     * Patch PIXI's format mapping for integer textures.
+     * WebGL2 requires RGBA_INTEGER for uint textures, but PIXI maps them to RGBA.
+     */
+    private _patchIntegerFormats(): void
+    {
+        if (formatPatched) return;
+        formatPatched = true;
+
+        const renderer = this._renderer as WebGLRenderer;
+
+        // Only needed for WebGL
+        if (!renderer.gl) return;
+
+        const gl = renderer.gl as WebGL2RenderingContext;
+        const texSystem = (renderer as any).texture;
+
+        if (texSystem?._mapFormatToFormat)
+        {
+            texSystem._mapFormatToFormat['rgba32uint'] = gl.RGBA_INTEGER;
+            texSystem._mapFormatToFormat['rgba16uint'] = gl.RGBA_INTEGER;
+            texSystem._mapFormatToFormat['rgba8uint'] = gl.RGBA_INTEGER;
+            texSystem._mapFormatToFormat['rgba32sint'] = gl.RGBA_INTEGER;
+        }
+    }
+
+    public destroy(): void
+    {
+        this._renderer = null as any;
+    }
+}
