@@ -11,7 +11,7 @@ export class SlugAtlas
     public readonly fontData: SlugFontData;
 
     private _packed: PackedTextures;
-    private _knownCodepoints: Set<number> = new Set();
+    private _knownGlyphIds: Set<number> = new Set();
 
     constructor(fontData: SlugFontData)
     {
@@ -27,7 +27,7 @@ export class SlugAtlas
             if (glyph)
             {
                 glyphs.push(glyph);
-                this._knownCodepoints.add(cp);
+                this._knownGlyphIds.add(glyph.glyphId);
             }
         }
 
@@ -47,10 +47,11 @@ export class SlugAtlas
         for (const char of text)
         {
             const cp = char.codePointAt(0)!;
+            const glyph = this.fontData.glyphs.get(cp);
 
-            if (!this._knownCodepoints.has(cp) && this.fontData.glyphs.has(cp))
+            if (glyph && !this._knownGlyphIds.has(glyph.glyphId))
             {
-                this._knownCodepoints.add(cp);
+                this._knownGlyphIds.add(glyph.glyphId);
                 needsRebuild = true;
             }
         }
@@ -62,9 +63,37 @@ export class SlugAtlas
         return true;
     }
 
-    public getGlyphInfo(codepoint: number): GlyphAtlasEntry | undefined
+    /**
+     * Ensure glyph IDs are in the atlas, extracting on-demand for unknown IDs.
+     * @returns true if the atlas was rebuilt (textures changed)
+     */
+    public ensureGlyphIds(glyphIds: number[]): boolean
     {
-        return this._packed.atlas.get(codepoint);
+        let needsRebuild = false;
+
+        for (const glyphId of glyphIds)
+        {
+            if (this._knownGlyphIds.has(glyphId)) continue;
+
+            const glyph = this.fontData.getGlyphByIndex(glyphId);
+
+            if (glyph)
+            {
+                this._knownGlyphIds.add(glyphId);
+                needsRebuild = true;
+            }
+        }
+
+        if (!needsRebuild) return false;
+
+        this._rebuild();
+
+        return true;
+    }
+
+    public getGlyphInfo(glyphId: number): GlyphAtlasEntry | undefined
+    {
+        return this._packed.atlas.get(glyphId);
     }
 
     public getCurveTextureData(): { data: Float32Array; width: number; height: number }
@@ -90,9 +119,9 @@ export class SlugAtlas
         const glyphs: SlugGlyph[] = [];
         const bandDataList: GlyphBandData[] = [];
 
-        for (const cp of this._knownCodepoints)
+        for (const glyphId of this._knownGlyphIds)
         {
-            const glyph = this.fontData.glyphs.get(cp);
+            const glyph = this.fontData.glyphsById.get(glyphId);
 
             if (glyph)
             {

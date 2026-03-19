@@ -23,6 +23,7 @@ export function parseSlugFontFromBuffer(buffer: ArrayBuffer): SlugFontData
     const font = opentype.parse(buffer);
 
     const glyphs = new Map<number, SlugGlyph>();
+    const glyphsById = new Map<number, SlugGlyph>();
     const cubicStats = { count: 0 };
 
     for (let i = 0; i < font.glyphs.length; i++)
@@ -36,6 +37,7 @@ export function parseSlugFontFromBuffer(buffer: ArrayBuffer): SlugFontData
         if (slugGlyph)
         {
             glyphs.set(slugGlyph.unicode, slugGlyph);
+            glyphsById.set(slugGlyph.glyphId, slugGlyph);
         }
     }
 
@@ -52,6 +54,8 @@ export function parseSlugFontFromBuffer(buffer: ArrayBuffer): SlugFontData
         ascender: font.ascender,
         descender: font.descender,
         glyphs,
+        glyphsById,
+        rawBuffer: buffer,
         getKerning(cp1: number, cp2: number): number
         {
             const g1 = font.charToGlyph(String.fromCodePoint(cp1));
@@ -60,6 +64,23 @@ export function parseSlugFontFromBuffer(buffer: ArrayBuffer): SlugFontData
             if (!g1 || !g2) return 0;
 
             return font.getKerningValue(g1, g2);
+        },
+        getGlyphByIndex(glyphId: number): SlugGlyph | null
+        {
+            if (glyphsById.has(glyphId)) return glyphsById.get(glyphId)!;
+
+            const glyph = font.glyphs.get(glyphId);
+
+            if (!glyph) return null;
+
+            const slugGlyph = extractGlyphByIndex(glyph, glyphId, font.unitsPerEm);
+
+            if (slugGlyph)
+            {
+                glyphsById.set(glyphId, slugGlyph);
+            }
+
+            return slugGlyph;
         },
     };
 }
@@ -75,6 +96,52 @@ function extractGlyph(
 
     if (commands.length === 0) return null;
 
+    const curves = extractCurves(commands, cubicStats);
+
+    if (curves.length === 0) return null;
+
+    const bounds = computeBounds(curves);
+
+    return {
+        unicode: glyph.unicode!,
+        glyphId: glyph.index,
+        advanceWidth: glyph.advanceWidth ?? 0,
+        bounds,
+        curves,
+    };
+}
+
+/**
+ * Extract a glyph by its index (for ligatures and other non-unicode glyphs).
+ */
+function extractGlyphByIndex(
+    glyph: opentype.Glyph,
+    glyphId: number,
+    unitsPerEm: number,
+): SlugGlyph | null
+{
+    const path = glyph.getPath(0, 0, unitsPerEm);
+    const commands = path.commands;
+
+    if (commands.length === 0) return null;
+
+    const curves = extractCurves(commands);
+
+    if (curves.length === 0) return null;
+
+    const bounds = computeBounds(curves);
+
+    return {
+        unicode: glyph.unicode ?? -1,
+        glyphId,
+        advanceWidth: glyph.advanceWidth ?? 0,
+        bounds,
+        curves,
+    };
+}
+
+function extractCurves(commands: any[], cubicStats?: { count: number }): QuadBezier[]
+{
     const curves: QuadBezier[] = [];
     let currentX = 0;
     let currentY = 0;
@@ -155,16 +222,7 @@ function extractGlyph(
         }
     }
 
-    if (curves.length === 0) return null;
-
-    const bounds = computeBounds(curves);
-
-    return {
-        unicode: glyph.unicode!,
-        advanceWidth: glyph.advanceWidth ?? 0,
-        bounds,
-        curves,
-    };
+    return curves;
 }
 
 function approximateCubicWithQuadratics(

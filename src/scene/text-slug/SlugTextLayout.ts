@@ -1,7 +1,7 @@
 import { Geometry } from '../../rendering/renderers/shared/geometry/Geometry';
 
-import type { SlugAtlas } from './SlugAtlas';
-import type { GlyphAtlasEntry, SlugFontData } from './SlugTypes';
+import type { SlugFont } from './SlugFont';
+import type { GlyphAtlasEntry } from './SlugTypes';
 
 export interface SlugTextLayoutOptions
 {
@@ -19,8 +19,7 @@ export interface SlugTextLayoutOptions
  * Build a PIXI Geometry for Slug text rendering.
  */
 export function buildSlugGeometry(
-    atlas: SlugAtlas,
-    fontData: SlugFontData,
+    font: SlugFont,
     options: SlugTextLayoutOptions,
 ): Geometry
 {
@@ -35,17 +34,19 @@ export function buildSlugGeometry(
         wordWrapWidth = 0,
     } = options;
 
+    const atlas = font.atlas;
+    const fontData = font.fontData;
     const scale = fontSize / fontData.unitsPerEm;
     const defaultLineHeight = (fontData.ascender - fontData.descender) * scale;
     const lineHeight = customLineHeight ?? defaultLineHeight;
 
     // Split text into lines (handle word wrap if enabled)
     const lines = wordWrap && wordWrapWidth > 0
-        ? wrapText(text, atlas, fontData, scale, letterSpacing, wordWrapWidth)
+        ? wrapText(text, font, scale, letterSpacing, wordWrapWidth)
         : text.split('\n');
 
     // Calculate line widths for alignment
-    const lineWidths = lines.map((line) => measureLine(line, atlas, fontData, scale, letterSpacing));
+    const lineWidths = lines.map((line) => measureLine(line, font, scale, letterSpacing));
     const maxWidth = Math.max(...lineWidths, 0);
 
     const positions: number[] = [];
@@ -66,37 +67,50 @@ export function buildSlugGeometry(
         if (align === 'center') offsetX = (maxWidth - lineWidth) / 2;
         else if (align === 'right') offsetX = maxWidth - lineWidth;
 
+        // Shape the line using HarfBuzz
+        const shapedGlyphs = font.shape(line);
+        const glyphIds = shapedGlyphs.map((g) => g.glyphId);
+
+        atlas.ensureGlyphIds(glyphIds);
+
         let cursorX = offsetX;
-        const cursorY = lineIdx * lineHeight;
-        let prevCodepoint: number | null = null;
+        const baselineY = (fontData.ascender * scale) + (lineIdx * lineHeight);
 
-        for (const char of line)
+        let prevCluster = -1;
+
+        for (const sg of shapedGlyphs)
         {
-            const codepoint = char.codePointAt(0)!;
-
-            if (prevCodepoint !== null)
-            {
-                cursorX += fontData.getKerning(prevCodepoint, codepoint) * scale;
-            }
-
-            const entry = atlas.getGlyphInfo(codepoint);
+            const entry = atlas.getGlyphInfo(sg.glyphId);
 
             if (!entry)
             {
-                cursorX += fontSize * 0.3;
-                prevCodepoint = codepoint;
+                cursorX += (sg.xAdvance * scale);
+
+                if (prevCluster !== -1 && sg.cluster !== prevCluster)
+                {
+                    cursorX += letterSpacing;
+                }
+                prevCluster = sg.cluster;
                 continue;
             }
 
+            const glyphX = cursorX + (sg.xOffset * scale);
+            const glyphY = baselineY - (sg.yOffset * scale);
+
             appendGlyphQuad(
-                entry, cursorX, cursorY, scale, color,
+                entry, glyphX, glyphY, scale, color,
                 positions, texcoords, jacobians, banding, colors, indices,
                 vertexCount,
             );
 
             vertexCount += 4;
-            cursorX += (entry.advanceWidth * scale) + letterSpacing;
-            prevCodepoint = codepoint;
+            cursorX += (sg.xAdvance * scale);
+
+            if (prevCluster !== -1 && sg.cluster !== prevCluster)
+            {
+                cursorX += letterSpacing;
+            }
+            prevCluster = sg.cluster;
         }
     }
 
@@ -200,43 +214,24 @@ function uint32BitsToFloat(bits: number): number
 
 function measureLine(
     line: string,
-    _atlas: SlugAtlas,
-    fontData: SlugFontData,
+    font: SlugFont,
     scale: number,
     letterSpacing: number,
 ): number
 {
+    const shapedGlyphs = font.shape(line);
     let width = 0;
-    let prevCodepoint: number | null = null;
-    let charCount = 0;
+    let prevCluster = -1;
 
-    for (const char of line)
+    for (const sg of shapedGlyphs)
     {
-        const cp = char.codePointAt(0)!;
+        width += sg.xAdvance * scale;
 
-        if (prevCodepoint !== null)
+        if (prevCluster !== -1 && sg.cluster !== prevCluster)
         {
-            width += fontData.getKerning(prevCodepoint, cp) * scale;
+            width += letterSpacing;
         }
-
-        const glyph = fontData.glyphs.get(cp);
-
-        if (glyph)
-        {
-            width += glyph.advanceWidth * scale;
-        }
-        else
-        {
-            width += scale * fontData.unitsPerEm * 0.3;
-        }
-
-        prevCodepoint = cp;
-        charCount++;
-    }
-
-    if (charCount > 1)
-    {
-        width += letterSpacing * (charCount - 1);
+        prevCluster = sg.cluster;
     }
 
     return width;
@@ -244,8 +239,7 @@ function measureLine(
 
 function wrapText(
     text: string,
-    atlas: SlugAtlas,
-    fontData: SlugFontData,
+    font: SlugFont,
     scale: number,
     letterSpacing: number,
     wrapWidth: number,
@@ -262,7 +256,7 @@ function wrapText(
         for (const word of words)
         {
             const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
-            const testWidth = measureLine(testLine, atlas, fontData, scale, letterSpacing);
+            const testWidth = measureLine(testLine, font, scale, letterSpacing);
 
             if (testWidth > wrapWidth && currentLine.length > 0)
             {

@@ -19,6 +19,7 @@ export interface SlugBounds
 export interface SlugGlyph
 {
     unicode: number;
+    glyphId: number;
     advanceWidth: number;
     bounds: SlugBounds;
     curves: QuadBezier[];
@@ -31,7 +32,10 @@ export interface SlugFontData
     ascender: number;
     descender: number;
     glyphs: Map<number, SlugGlyph>;
+    glyphsById: Map<number, SlugGlyph>;
+    rawBuffer: ArrayBuffer;
     getKerning(cp1: number, cp2: number): number;
+    getGlyphByIndex(glyphId: number): SlugGlyph | null;
 }
 
 /** Band data for a single glyph, ready for texture packing. */

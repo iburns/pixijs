@@ -1,6 +1,8 @@
+import { Color } from '../../color/Color';
 import { ObservablePoint } from '../../maths/point/ObservablePoint';
 import { ViewContainer } from '../view/ViewContainer';
 
+import type { ColorSource } from '../../color/Color';
 import type { PointData } from '../../maths/point/PointData';
 import type { View } from '../../rendering/renderers/shared/view/View';
 import type { ContainerOptions } from '../container/Container';
@@ -37,8 +39,8 @@ export interface SlugTextOptions extends ContainerOptions
     font: SlugFont;
     /** Font size in pixels */
     fontSize?: number;
-    /** Text color as [r, g, b, a] normalized */
-    color?: [number, number, number, number];
+    /** Text color (hex string, CSS name, number, or normalized RGBA array) */
+    color?: ColorSource;
     /** The anchor point of the text (0-1 range) */
     anchor?: PointData;
     /** Extra spacing between characters in pixels */
@@ -105,7 +107,7 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
         this._text = text ?? '';
         this._font = font;
         this._fontSize = fontSize ?? 24;
-        this._color = color ?? [1, 1, 1, 1];
+        this._color = color ? new Color(color).toArray() as [number, number, number, number] : [1, 1, 1, 1];
         this._letterSpacing = letterSpacing ?? 0;
         this._lineHeight = lineHeight;
         this._align = align ?? 'left';
@@ -176,9 +178,9 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
         return this._color;
     }
 
-    set color(value: [number, number, number, number])
+    set color(value: ColorSource)
     {
-        this._color = value;
+        this._color = new Color(value).toArray() as [number, number, number, number];
         this._didTextUpdate = true;
         this.onViewUpdate();
     }
@@ -258,7 +260,10 @@ export class SlugText extends ViewContainer<SlugTextGpuData> implements View
     protected updateBounds(): void
     {
         const bounds = this._bounds;
-        const measurement = this._font.measureText(this._text, this._fontSize);
+        const measurement = this._font.measureText(this._text, this._fontSize, {
+            lineHeight: this._lineHeight,
+            letterSpacing: this._letterSpacing,
+        });
 
         const anchor = this._anchor;
 

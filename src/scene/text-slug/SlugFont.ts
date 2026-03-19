@@ -1,6 +1,8 @@
 import { SlugAtlas } from './SlugAtlas';
+import { HarfBuzzShaper } from './utils/harfbuzzShaper';
 
 import type { SlugFontData } from './SlugTypes';
+import type { ShapedGlyph } from './utils/harfbuzzShaper';
 import { parseSlugFont, parseSlugFontFromBuffer } from './utils/fontParser';
 
 const fontCache = new Map<string, SlugFont>();
@@ -13,10 +15,20 @@ export class SlugFont
     public readonly fontData: SlugFontData;
     public readonly atlas: SlugAtlas;
 
+    private _shaper: HarfBuzzShaper | null = null;
+    private _shaperReady: Promise<void> | null = null;
+
     constructor(fontData: SlugFontData)
     {
         this.fontData = fontData;
         this.atlas = new SlugAtlas(fontData);
+
+        this._shaperReady = this._initShaper();
+    }
+
+    private async _initShaper(): Promise<void>
+    {
+        this._shaper = await HarfBuzzShaper.create(this.fontData.rawBuffer);
     }
 
     /**
@@ -32,6 +44,8 @@ export class SlugFont
         const fontData = await parseSlugFont(url);
         const font = new SlugFont(fontData);
 
+        await font._shaperReady;
+
         fontCache.set(url, font);
 
         return font;
@@ -40,67 +54,121 @@ export class SlugFont
     /**
      * Create a SlugFont from an ArrayBuffer (not cached).
      */
-    public static fromBuffer(buffer: ArrayBuffer): SlugFont
+    public static async fromBuffer(buffer: ArrayBuffer): Promise<SlugFont>
     {
         const fontData = parseSlugFontFromBuffer(buffer);
+        const font = new SlugFont(fontData);
 
-        return new SlugFont(fontData);
+        await font._shaperReady;
+
+        return font;
+    }
+
+    /**
+     * Shape text using HarfBuzz.
+     */
+    public shape(text: string): ShapedGlyph[]
+    {
+        if (!this._shaper)
+        {
+            throw new Error('[SlugFont] HarfBuzz shaper not initialized. Ensure font is loaded via `await SlugFont.from()` or `await SlugFont.fromBuffer()`.');
+        }
+
+        return this._shaper.shape(text);
     }
 
     /**
      * Measure text dimensions at the given font size.
      */
-    public measureText(text: string, fontSize: number): { width: number; height: number }
+    public measureText(
+        text: string,
+        fontSize: number,
+        options?: { lineHeight?: number; letterSpacing?: number },
+    ): { width: number; height: number }
     {
         const scale = fontSize / this.fontData.unitsPerEm;
+        const defaultLineHeight = (this.fontData.ascender - this.fontData.descender) * scale;
+        const effectiveLineHeight = options?.lineHeight ?? defaultLineHeight;
+        const letterSpacing = options?.letterSpacing ?? 0;
         let maxWidth = 0;
-        let currentLineWidth = 0;
         let lineCount = 1;
-        let prevCodepoint: number | null = null;
 
-        for (const char of text)
+        const lines = text.split('\n');
+
+        lineCount = lines.length;
+
+        for (const line of lines)
         {
-            if (char === '\n')
+            let lineWidth: number;
+
+            if (this._shaper)
             {
-                maxWidth = Math.max(maxWidth, currentLineWidth);
-                currentLineWidth = 0;
-                lineCount++;
-                prevCodepoint = null;
-                continue;
-            }
+                const shaped = this._shaper.shape(line);
 
-            const cp = char.codePointAt(0)!;
+                lineWidth = 0;
+                let prevCluster = -1;
 
-            if (prevCodepoint !== null)
-            {
-                currentLineWidth += this.fontData.getKerning(prevCodepoint, cp) * scale;
-            }
+                for (const sg of shaped)
+                {
+                    lineWidth += sg.xAdvance * scale;
 
-            const glyph = this.fontData.glyphs.get(cp);
-
-            if (glyph)
-            {
-                currentLineWidth += glyph.advanceWidth * scale;
+                    if (prevCluster !== -1 && sg.cluster !== prevCluster)
+                    {
+                        lineWidth += letterSpacing;
+                    }
+                    prevCluster = sg.cluster;
+                }
             }
             else
             {
-                currentLineWidth += fontSize * 0.3;
+                lineWidth = 0;
+                let prevCodepoint: number | null = null;
+                let charCount = 0;
+
+                for (const char of line)
+                {
+                    const cp = char.codePointAt(0)!;
+
+                    if (prevCodepoint !== null)
+                    {
+                        lineWidth += this.fontData.getKerning(prevCodepoint, cp) * scale;
+                    }
+
+                    const glyph = this.fontData.glyphs.get(cp);
+
+                    if (glyph)
+                    {
+                        lineWidth += glyph.advanceWidth * scale;
+                    }
+                    else
+                    {
+                        lineWidth += fontSize * 0.3;
+                    }
+
+                    prevCodepoint = cp;
+                    charCount++;
+                }
+
+                if (charCount > 1) lineWidth += letterSpacing * (charCount - 1);
             }
 
-            prevCodepoint = cp;
+            maxWidth = Math.max(maxWidth, lineWidth);
         }
-
-        maxWidth = Math.max(maxWidth, currentLineWidth);
-        const lineHeight = (this.fontData.ascender - this.fontData.descender) * scale;
 
         return {
             width: maxWidth,
-            height: lineHeight * lineCount,
+            height: defaultLineHeight + ((lineCount - 1) * effectiveLineHeight),
         };
     }
 
     public destroy(): void
     {
+        if (this._shaper)
+        {
+            this._shaper.destroy();
+            this._shaper = null;
+        }
+
         // Remove from cache
         for (const [key, value] of fontCache)
         {

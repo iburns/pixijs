@@ -98,11 +98,8 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         const font = slugText._font;
         const atlas = font.atlas;
 
-        // Ensure all characters in text are in atlas
-        const atlasChanged = atlas.ensureCharacters(slugText._text);
-
-        // Build geometry
-        const geometry = buildSlugGeometry(atlas, font.fontData, {
+        // Build geometry (shaping + atlas ensuring happens inside)
+        const geometry = buildSlugGeometry(font, {
             text: slugText._text,
             fontSize: slugText._fontSize,
             color: slugText._color,
@@ -112,6 +109,8 @@ export class SlugTextPipe implements RenderPipe<SlugText>
             wordWrap: slugText._wordWrap,
             wordWrapWidth: slugText._wordWrapWidth,
         });
+
+        const atlasChanged = true;
 
         if (gpuData.mesh)
         {

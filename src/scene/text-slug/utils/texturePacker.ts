@@ -151,7 +151,7 @@ export function packTextures(
             }
         }
 
-        atlas.set(glyph.unicode, {
+        atlas.set(glyph.glyphId, {
             curveTexelX: curvePositions.length > 0 ? curvePositions[0].x : 0,
             curveTexelY: curvePositions.length > 0 ? curvePositions[0].y : 0,
             bandTexelX: bandStartX,

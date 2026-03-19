@@ -177,6 +177,7 @@ export * from './text-slug/SlugText';
 export * from './text-slug/SlugTextLayout';
 export * from './text-slug/SlugTextPipe';
 export * from './text-slug/SlugTypes';
+export * from './text-slug/utils/harfbuzzShaper';
 export * from './view/ViewContainer';
 /** @ignore */
 export { default as particlesFrag } from './particle-container/shared/shader/particles.frag';
