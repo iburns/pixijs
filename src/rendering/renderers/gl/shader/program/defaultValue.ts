@@ -37,7 +37,14 @@ export function defaultValue(
         case 'int':
         case 'uint':
         case 'sampler2D':
+        case 'isampler2D':
+        case 'usampler2D':
         case 'sampler2DArray':
+        case 'isampler2DArray':
+        case 'usampler2DArray':
+        case 'samplerCube':
+        case 'isamplerCube':
+        case 'usamplerCube':
             return 0;
 
         case 'ivec2':

@@ -10,11 +10,7 @@ import type { InstructionSet } from '../../rendering/renderers/shared/instructio
 import type { RenderPipe } from '../../rendering/renderers/shared/instructions/RenderPipe';
 import type { Renderable } from '../../rendering/renderers/shared/Renderable';
 import type { Renderer } from '../../rendering/renderers/types';
-import type { WebGLRenderer } from '../../rendering/renderers/gl/WebGLRenderer';
 import type { SlugText } from './SlugText';
-
-/** Whether the PIXI format mapping has been patched for integer textures */
-let formatPatched = false;
 
 /** @internal */
 export class SlugTextPipe implements RenderPipe<SlugText>
@@ -131,8 +127,6 @@ export class SlugTextPipe implements RenderPipe<SlugText>
         else
         {
             // Create new mesh with shader
-            this._patchIntegerFormats();
-
             const curveTexData = atlas.getCurveTextureData();
             const bandTexData = atlas.getBandTextureData();
 
@@ -226,32 +220,6 @@ export class SlugTextPipe implements RenderPipe<SlugText>
             const renderer = this._renderer;
 
             shader.viewport = [renderer.width, renderer.height];
-        }
-    }
-
-    /**
-     * Patch PIXI's format mapping for integer textures.
-     * WebGL2 requires RGBA_INTEGER for uint textures, but PIXI maps them to RGBA.
-     */
-    private _patchIntegerFormats(): void
-    {
-        if (formatPatched) return;
-        formatPatched = true;
-
-        const renderer = this._renderer as WebGLRenderer;
-
-        // Only needed for WebGL
-        if (!renderer.gl) return;
-
-        const gl = renderer.gl as WebGL2RenderingContext;
-        const texSystem = (renderer as any).texture;
-
-        if (texSystem?._mapFormatToFormat)
-        {
-            texSystem._mapFormatToFormat['rgba32uint'] = gl.RGBA_INTEGER;
-            texSystem._mapFormatToFormat['rgba16uint'] = gl.RGBA_INTEGER;
-            texSystem._mapFormatToFormat['rgba8uint'] = gl.RGBA_INTEGER;
-            texSystem._mapFormatToFormat['rgba32sint'] = gl.RGBA_INTEGER;
         }
     }
 

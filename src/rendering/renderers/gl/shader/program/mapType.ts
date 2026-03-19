@@ -29,14 +29,14 @@ const GL_TO_GLSL_TYPES: Dict<string> = {
     FLOAT_MAT4:  'mat4',
 
     SAMPLER_2D:              'sampler2D',
-    INT_SAMPLER_2D:          'sampler2D',
-    UNSIGNED_INT_SAMPLER_2D: 'sampler2D',
+    INT_SAMPLER_2D:          'isampler2D',
+    UNSIGNED_INT_SAMPLER_2D: 'usampler2D',
     SAMPLER_CUBE:              'samplerCube',
-    INT_SAMPLER_CUBE:          'samplerCube',
-    UNSIGNED_INT_SAMPLER_CUBE: 'samplerCube',
+    INT_SAMPLER_CUBE:          'isamplerCube',
+    UNSIGNED_INT_SAMPLER_CUBE: 'usamplerCube',
     SAMPLER_2D_ARRAY:              'sampler2DArray',
-    INT_SAMPLER_2D_ARRAY:          'sampler2DArray',
-    UNSIGNED_INT_SAMPLER_2D_ARRAY: 'sampler2DArray',
+    INT_SAMPLER_2D_ARRAY:          'isampler2DArray',
+    UNSIGNED_INT_SAMPLER_2D_ARRAY: 'usampler2DArray',
 };
 
 const GLSL_TO_VERTEX_TYPES: Record<string, VertexFormat> = {
